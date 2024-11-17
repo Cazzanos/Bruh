@@ -54,9 +54,12 @@ HomeTab:Toggle("auto fire", function(state)
 getgenv().AutoFireEnabled = state
 end)
 
+--[[
 HomeTab:Toggle("autoEquip (for auto fire)", function(state)
 getgenv().AutoEquipEnabled = state
 end)
+--]]
+
 
 HomeTab:Section("kill")
 
@@ -220,43 +223,52 @@ end
 
 -- Funcție pentru auto-echipare a tool-ului
 local function AutoEquipTool()
-    local equippedTool = LPlayer.Character:FindFirstChildOfClass("Tool")
-    if not equippedTool then
-        for _, tool in pairs(LPlayer.Backpack:GetChildren()) do
-            if tool:IsA("Tool") and tool:FindFirstChild("Fire", true) then
-                LPlayer.Character.Humanoid:EquipTool(tool)
-                return tool -- Returnăm tool-ul echipat
+    if getgenv().AutoEquipEnabled and getgenv().AutoFireEnabled then
+        -- Verificăm dacă tool-ul nu este deja echipat
+        local equippedTool = LPlayer.Character:FindFirstChildOfClass("Tool")
+        if not equippedTool then
+            for _, tool in pairs(LPlayer.Backpack:GetChildren()) do
+                if tool:IsA("Tool") and tool:FindFirstChild("Fire", true) then
+                    LPlayer.Character.Humanoid:EquipTool(tool)
+                    break
+                end
             end
         end
     end
-    return equippedTool -- Returnăm tool-ul deja echipat sau nil
 end
 
--- Funcție pentru auto dezechipare
-local function AutoUnequipTool()
-    local equippedTool = LPlayer.Character:FindFirstChildOfClass("Tool")
-    if equippedTool then
-        equippedTool.Parent = LPlayer.Backpack
+-- Hook pentru FireServer care redirecționează mereu glonțul spre cel mai apropiat jucător
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+
+    if getgenv().SilentAimEnabled and method == "FireServer" and self == ShootRemote then
+        local closestPlayer = GetClosestPlayer()
+        if closestPlayer and closestPlayer.Character and closestPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            -- Modificăm argumentele pentru a ținti jucătorul cel mai apropiat
+            args[2] = closestPlayer.Character.HumanoidRootPart.Position -- Poziția țintei
+            args[3] = closestPlayer.Character.HumanoidRootPart -- Țintim HumanoidRootPart
+            setnamecallmethod(method)
+            return oldNamecall(self, unpack(args))
+        end
     end
-end
+
+    return oldNamecall(self, ...)
+end))
 
 -- Funcție de auto-fire (trage automat)
 task.spawn(function()
     while true do
         if getgenv().AutoFireEnabled and getgenv().SilentAimEnabled then
-            -- Găsim cel mai apropiat jucător
-            local closestPlayer = GetClosestPlayer()
+            -- Verificăm dacă există un tool echipat și are un sunet Fire
+            local tool = LPlayer.Character:FindFirstChildOfClass("Tool")
+            if tool and tool:FindFirstChild("Fire") then
+                local closestPlayer = GetClosestPlayer()
+                if closestPlayer and closestPlayer.Character and closestPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    -- Auto-echipăm tool-ul dacă este activat toggle-ul
+                    AutoEquipTool()
 
-            if closestPlayer and closestPlayer.Character and closestPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                -- Echipează arma doar dacă AutoEquip este activat
-                local tool
-                if getgenv().AutoEquipEnabled then
-                    tool = AutoEquipTool()
-                else
-                    tool = LPlayer.Character:FindFirstChildOfClass("Tool")
-                end
-
-                if tool and tool:FindFirstChild("Fire") then
                     -- Argumentele pentru evenimentul de tragere
                     local args = {
                         [1] = LPlayer.Character.HumanoidRootPart.Position, -- Poziția jucătorului local
@@ -264,11 +276,6 @@ task.spawn(function()
                         [3] = closestPlayer.Character.HumanoidRootPart -- Țintim HumanoidRootPart
                     }
                     ShootRemote:FireServer(unpack(args))
-                end
-
-                -- Dezechipează arma dacă AutoEquip este activat
-                if getgenv().AutoEquipEnabled then
-                    AutoUnequipTool()
                 end
             end
         end
